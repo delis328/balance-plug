@@ -1,11 +1,11 @@
-# Balance Plug 1.2.1
+# Balance Plug 1.3.3
 
 极简 Windows 账户余额悬浮窗，针对 IKUN / Sub2API 账户总余额。程序不调用模型、不查询 API Key 配额、不修改远端业务数据。
 
 ## 启动与更新
 
 - Windows x64，需要 **.NET 8 Desktop Runtime x64**；不是仅安装基础 .NET 或 ASP.NET Runtime。
-- 新版位于 `publish-v1.2.1/BalancePlug.exe`，请保留同目录全部文件；旧版的 `publish` 和 `publish-v1.1.0` 目录没有被覆盖。
+- 新版位于 `publish-v1.3.3/BalancePlug.exe`，请保留同目录全部文件；旧版的 `publish` 和 `publish-v1.1.0` 目录没有被覆盖。
 - 先通过旧版菜单“关闭”退出旧版，再打开新版，正常配置会自动迁移；不要让旧版继续使用已迁移的配置。
 - 如果启用了开机自启，新版启动后请取消勾选、再重新勾选一次，让启动项指向新版 exe；程序不会擅自改变原来的自启路径。
 - 右键悬浮窗或托盘 → API / 账户配置 → 输入 HTTPS 站点根地址、邮箱、密码 → 登录 / 测试连接。
@@ -13,6 +13,40 @@
 - “关闭”退出整个程序；同一 Windows 用户、同一配置目录只运行一个实例。
 
 默认站点为 `https://api.ikungod.online`；金额沿用站点的美元符号，不做汇率转换。失败会保留最近成功余额和成功时间，绝不把查询失败当成零余额。
+
+## 1.3.3 固定更新时间
+
+- 更新时间恢复为气泡底部独立固定行，主金额区域与时间区域不参与彼此的内容缩放。
+- 标题固定高度，金额固定容器；较长数字只缩放金额文字，不改变标题或时间位置。
+- 余额与今日花费分别显示对应最近成功查询时间，失败不更新时间，提醒和异常仍保留固定时间行。
+- 刷新保持静默，不显示查询中或已更新；没有进行性能测试或自动推送。
+
+## 1.3.2 精简气泡与情景色
+
+- 删除气泡下方所有小字行，包括查询中、已更新和更新时间。更新时间改为气泡悬停提示。
+- 刷新期间保持当前画面不变；连接失败、登录失效等改为整气泡文本，成功后恢复选择的金额界面。
+- 今日花费大金额带减号（例如 -$12.34），采用暖玫红色，已启用预算提醒且超预算时采用更深的红色；余额保留蓝粉渐变。
+- 预算提醒和错误共用同一气泡，不增加状态行；提醒十秒后根据当前状态恢复。
+- 本次未性能测试、未自动提交或推送。
+
+## 1.3.1 共用气泡显示
+
+- 余额界面：账户余额标题、大金额、更新时间；成功后不再显示“已更新”，必要错误提示仍保留。
+- 双击吉祥物在整个账户余额界面和整个今日花费界面之间切换，不再挤进辅助行。
+- 预算提醒临时独占同一个气泡，文本居中、自动换行，短文本优先大字；长文本测量后适配。10 秒后恢复此前选择的界面。
+- 原有金额、今日统计和提醒节点逻辑不变，提醒界面不会覆盖或丢失后台余额数据。
+- 本次不做性能测试，也不自动提交／推送 GitHub。
+
+## 1.3.0 今日花费与预算提醒
+
+- 每次余额刷新后查询北京时间当天 00:00 至次日 00:00 的实际美元计费，不用余额净减少替代消费统计。
+- 双击吉祥物：整个气泡在账户余额和今日花费两种大金额界面间切换；开启鼠标穿透时先通过托盘关闭穿透。
+- 菜单“今日花费提醒…”可启用提醒、设置每日阈值，添加／编辑／删除提示文本，并勾选一条或多条随机选择。默认提醒关闭，默认阈值 $20。
+- 超过 T 首次提醒，之后 T+$5、T+$10…节点提醒；正好等于 T 不提醒。一轮跨多个节点只显示一次，当天重启不重复已记录节点。
+- 提醒临时替换整个气泡内容 10 秒后恢复，余额数据在后台保留。长文本可悬停查看全文。
+- 日界线固定北京时间，不随电脑时区改变；午夜清掉昨日花费和提醒，下一次统计成功后显示新日数据。网络失败保留同一天最后成功花费并标记更新失败，不当作零。
+- 修改阈值、换账户或进入新日重建节点基准。提醒记录与设置保存在本机 settings.json，不包含密码。
+- 今日统计与余额查询不是同一事务；金额可能随消费和服务端统计更新，不代表瞬时账单一致性。
 
 ## 1.2.1 消费提示修复
 
@@ -38,7 +72,7 @@
 - 导入图片后先填写吉祥物名称，默认使用原文件名；已有相同图片默认显示已有名称。点击确定才导入／切换，取消不改变现有图片、形象库或选择。
 - “吉祥物选择”下新增“重命名当前形象…”（仅选中本地形象时提供），可调整已导入形象名称；默认鲸鱼不提供重命名。
 - 名称去除首尾空白，允许 1—40 个字符，不允许换行／控制字符；保留名称中的点号，不把用户输入当文件名处理。同名会追加序号，不修改图片内容或哈希标识。
-- 本次发布位于 publish-v1.2.1，1.1.0 的目录仍保留；先退出当前版本，再打开 1.1.1，若设置过自启请取消再勾选以指向新路径。
+- 本次发布位于 publish-v1.3.3，1.1.0 的目录仍保留；先退出当前版本，再打开 1.1.1，若设置过自启请取消再勾选以指向新路径。
 
 ## 本次五项改进
 
@@ -91,7 +125,7 @@
 dotnet build BalancePlug.sln -c Release
 dotnet run --project BalancePlug.Tests/BalancePlug.Tests.csproj -c Release
 dotnet run --project BalancePlug.Tests/BalancePlug.Tests.csproj -c Release -- --ui-smoke
-dotnet publish BalancePlug/BalancePlug.csproj -c Release -r win-x64 --self-contained false -o publish-v1.2.1
+dotnet publish BalancePlug/BalancePlug.csproj -c Release -r win-x64 --self-contained false -o publish-v1.3.3
 ~~~
 
 常规测试使用模拟 HTTP，不访问真实账户。窗口测试使用临时配置，涵盖固定蓝白、48 种比例组合、控件激活管线、形象切换、动画替换／静态模式／右缘翻转，并输出 `outputs/ui-v1.1` 的演示预览；不把属性或程序化控件测试当作实际鼠标验收。
@@ -107,9 +141,9 @@ dotnet run --project BalancePlug.Tests/BalancePlug.Tests.csproj -c Release -- --
 ### 性能
 
 ~~~powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Measure-Performance.ps1 -Exe publish-v1.2.1/BalancePlug.exe -DataDirectory outputs/perf-empty-v1.1 -Report outputs/performance-v1.1.json
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Measure-Performance.ps1 -Exe publish-v1.3.3/BalancePlug.exe -DataDirectory outputs/perf-empty-v1.1 -Report outputs/performance-v1.1.json
 # 两小时采样：
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Measure-Performance.ps1 -Exe publish-v1.2.1/BalancePlug.exe -DataDirectory outputs/perf-empty-v1.1 -SoakMinutes 120 -Report outputs/soak-v1.1.json
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Measure-Performance.ps1 -Exe publish-v1.3.3/BalancePlug.exe -DataDirectory outputs/perf-empty-v1.1 -SoakMinutes 120 -Report outputs/soak-v1.1.json
 ~~~
 
 目录已有会话时会按该会话查询；空目录不查询真实账户。正常使用不用设置 `BALANCEPLUG_DATA_DIR`，它用于隔离测试数据和单实例名称。脚本只终止自己启动的采样进程，不终止旧版或其他配置实例。
@@ -122,5 +156,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Measure-Performance.
 
 ## 交付边界
 
-发布包不包含账号、会话、测试数据或用户导入图片。真实接口验证只读查询的程序入口仍为 `--live`，仅从进程环境变量获取登录信息，常规测试不执行它。本次验证情况见 `docs/VERIFICATION-v1.2.1.md`。
+发布包不包含账号、会话、测试数据或用户导入图片。真实接口验证只读查询的程序入口仍为 `--live`，仅从进程环境变量获取登录信息，常规测试不执行它。本次验证情况见 `docs/VERIFICATION-v1.3.3.md`。
 

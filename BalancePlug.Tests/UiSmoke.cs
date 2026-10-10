@@ -135,7 +135,7 @@ internal static class UiSmoke
                                 Check(modalBody.ActualHeight>=modalBody.DesiredSize.Height-modalBody.Margin.Top-modalBody.Margin.Bottom,"motion controls fit dialog client area");
                                 motion.Close();
                                 Invoke(window,"OpenMenu"); await Task.Delay(75); var menu = (ContextMenu)Field(window,"openMenu");
-                                Check(menu.IsOpen && menu.Items.Count==11,"shared menu opens"); Snapshot(theme + "-Menu",menu);
+                                Check(menu.IsOpen && menu.Items.Count==12,"shared menu opens"); Snapshot(theme + "-Menu",menu);
                                 Invoke(window,"CloseMenu");
                             }
                             settings.Theme = "Blue"; Invoke(window,"ApplyAppearance");
@@ -219,6 +219,38 @@ internal static class UiSmoke
                             var edgeElement = (FrameworkElement)edgePopup.Child; var origin = edgeElement.PointToScreen(new Point(0,0));
                             Check(origin.X>=work.Left && origin.X+edgeElement.ActualWidth*dpi.DpiScaleX<=work.Right+1,"right-edge decrease stays within work area");
                             delta.GetType().GetMethod("Hide")!.Invoke(delta,null);
+                            Invoke(window,"OpenSpendAlerts");var spendWindow=(Window)Field(window,"spendAlertWindow");spendWindow.UpdateLayout();Snapshot("Daily-Spend-Settings",spendWindow);spendWindow.Close();
+                            settings.SpendAlerts=new SpendAlertSettings{Enabled=true,Threshold=10,Messages=new(){new("预算测试提示",true),new("不应选择",false)}};
+                            await (Task)Invoke(window,"RefreshAsync")!;
+                            typeof(MainWindow).GetField("showDaily",BindingFlags.NonPublic|BindingFlags.Instance)!.SetValue(window,true);Invoke(window,"RenderDisplay");
+                            Check(((Viewbox)Field(window,"contentBox")).Child==Field(window,"reminder") && ((TextBlock)Field(window,"reminder")).Text=="预算测试提示","budget message owns entire shared bubble");
+                            Snapshot("Full-Reminder",(FrameworkElement)window.Content);
+                            Check(((TextBlock)Field(window,"reminder")).FontSize>=24,"short reminder uses large readable text");
+                            await Task.Delay(10500);
+                            Check(((TextBlock)Field(window,"title")).Text=="今日花费" && ((TextBlock)Field(window,"amount")).Text=="-$12.34" && ((Viewbox)Field(window,"contentBox")).Child==Field(window,"normalContent"),"ten-second alert restores full daily-spend interface");
+                            Check(((TextBlock)Field(window,"status")).Visibility==Visibility.Collapsed,"successful view hides already-updated status");
+                            Check(((StackPanel)Field(window,"normalContent")).Children.Count==2,"timestamp is separate from main content");
+                            var timestamp=(TextBlock)Field(window,"updated");
+                            Check(Canvas.GetTop(timestamp)==130 && timestamp.Height==22 && timestamp.Text.StartsWith("更新 "),"timestamp has fixed independent row and valid success time");
+                            var timeTop=timestamp.TranslatePoint(new Point(0,0),(UIElement)window.Content).Y;
+                            var amountControl=(TextBlock)Field(window,"amount");amountControl.Text="-$1234567890.12";window.UpdateLayout();
+                            Check(Math.Abs(timestamp.TranslatePoint(new Point(0,0),(UIElement)window.Content).Y-timeTop)<.01,"long amount cannot move timestamp");
+                            Invoke(window,"RenderDisplay");
+                            Check(((TextBlock)Field(window,"amount")).Foreground is SolidColorBrush,"daily amount uses contextual warm color");
+                            Snapshot("Full-Daily",(FrameworkElement)window.Content);
+                            typeof(MainWindow).GetField("showDaily",BindingFlags.NonPublic|BindingFlags.Instance)!.SetValue(window,false);Invoke(window,"RenderDisplay");
+                            Check(((TextBlock)Field(window,"title")).Text=="账户余额" && ((TextBlock)Field(window,"amount")).Text==((BalanceDisplay)Field(window,"display")).AmountText,"balance view restored without losing account amount");
+                            Snapshot("Full-Balance",(FrameworkElement)window.Content);
+                            await (Task)Invoke(window,"RefreshAsync")!;Check(Field(window,"alertText") is null,"same daily node is not re-alerted");
+                            ((BalanceDisplay)Field(window,"display")).Fail("无法连接");Invoke(window,"RenderDisplay");
+                            Check(((Viewbox)Field(window,"contentBox")).Child==Field(window,"reminder") && ((TextBlock)Field(window,"reminder")).Text.Contains("无法连接"),"connection error owns whole bubble instead of small status row");
+                            Snapshot("Full-Error",(FrameworkElement)window.Content);
+                            ((BalanceDisplay)Field(window,"display")).Success(10m);Invoke(window,"RenderDisplay");
+                            typeof(MainWindow).GetField("alertText",BindingFlags.NonPublic|BindingFlags.Instance)!.SetValue(window,new string('提',100));Invoke(window,"RenderDisplay");
+                            var fullText=(TextBlock)Field(window,"reminder");fullText.Measure(new Size(224,double.PositiveInfinity));
+                            Check(fullText.DesiredSize.Height<=110 && fullText.FontSize>=14,"long reminder height=" + fullText.DesiredSize.Height + " font=" + fullText.FontSize + " line=" + fullText.LineHeight);
+                            Snapshot("Full-Long-Reminder",(FrameworkElement)window.Content);
+                            typeof(MainWindow).GetField("alertText",BindingFlags.NonPublic|BindingFlags.Instance)!.SetValue(window,null);Invoke(window,"RenderDisplay");
                             Check(!Directory.GetFiles(directory,"*.tmp",SearchOption.AllDirectories).Any(),"atomic writes leave no temporary files");
                             result = 0;
                         }
@@ -280,6 +312,7 @@ internal sealed class UiHandler : HttpMessageHandler
     public bool FailNext { get; set; }
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)
     {
+        if(request.RequestUri!.AbsolutePath.EndsWith("/usage/stats")) return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"code\":0,\"data\":{\"total_actual_cost\":12.34}}")};
         calls++;
         if (calls == 2 || FailNext) { FailNext=false; return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable); }
         if (calls == 4) await Task.Delay(100,ct);
@@ -287,21 +320,3 @@ internal sealed class UiHandler : HttpMessageHandler
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"code\":0,\"data\":{\"balance\":"+amount.ToString(System.Globalization.CultureInfo.InvariantCulture)+"}}") };
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

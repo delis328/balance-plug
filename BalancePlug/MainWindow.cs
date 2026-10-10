@@ -42,6 +42,10 @@ public sealed class MainWindow : Window
     private readonly TextBlock amount;
     private readonly TextBlock updated;
     private readonly TextBlock status;
+    private readonly StackPanel normalContent;
+    private readonly TextBlock reminder;
+    private readonly Viewbox amountBox;
+    private readonly Viewbox contentBox;
     private readonly Image mascot;
     private readonly TextBlock placeholder;
     private readonly DrawingImage defaultMascot;
@@ -52,9 +56,19 @@ public sealed class MainWindow : Window
     private SizeWindow? sizeWindow;
     private BubbleMotionWindow? bubbleMotionWindow;
     private Window? intervalWindow;
+    private SpendAlertWindow? spendAlertWindow;
+    private decimal? dailyAmount;
+    private DateOnly? dailyDay;
+    private DateTimeOffset? dailyUpdatedAt;
+    private string? dailyError;
+    private bool showDaily;
+    private string? alertText;
+    private readonly DispatcherTimer dayBoundary = new();
+    private readonly DispatcherTimer alertExpiry = new() { Interval=TimeSpan.FromSeconds(10) };
     private ContextMenu? openMenu;
     private Window? menuHost;
     private readonly List<(MenuItem Item, Func<bool> Check)> menuChecks = new();
+    private Point? dragOrigin;
     private bool closing;
     private bool closeRequested;
     private bool closeAllowed;
@@ -83,13 +97,18 @@ public sealed class MainWindow : Window
         var bubbleCanvas = new Canvas { Width = 300, Height = 210 };
         bubbleGroup = new Viewbox { Child = bubbleCanvas, Stretch = Stretch.Uniform }; scene.Children.Add(bubbleGroup);
         bubble = new Ellipse { Width = 292, Height = 158, StrokeThickness = 5 }; Add(bubbleCanvas, bubble, 4, 4);
-        var content = new StackPanel { Width = 252 };
-        title = new TextBlock { Text = "IKUN · 账户余额", FontSize = 19, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
-        amount = new TextBlock { Text = "—", FontSize = 41, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
-        updated = new TextBlock { FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center };
-        status = new TextBlock { FontSize = 11, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(4, 5, 4, 0) };
-        content.Children.Add(title); content.Children.Add(new Viewbox { Child = amount, Height = 53, MaxWidth = 228, StretchDirection = StretchDirection.DownOnly });
-        content.Children.Add(updated); content.Children.Add(status); Add(bubbleCanvas, content, 24, 23);
+        normalContent = new StackPanel { Width = 224 };
+        title = new TextBlock { FontSize = 22, Height = 32, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center };
+        amount = new TextBlock { Text = "—", FontSize = 46, FontWeight = FontWeights.Bold, TextAlignment = TextAlignment.Center };
+        amountBox = new Viewbox { Child = amount, Height = 56, MaxWidth = 224, StretchDirection = StretchDirection.DownOnly };
+        updated = new TextBlock { FontSize = 15, Width = 180, Height = 22, TextAlignment = TextAlignment.Center };
+        status = new TextBlock { FontSize = 15, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,3,0,0) };
+        normalContent.Children.Add(title); normalContent.Children.Add(amountBox);
+        reminder = new TextBlock { Width = 224, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, FontWeight = FontWeights.SemiBold, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
+        reminder.SetResourceReference(TextBlock.ForegroundProperty,"DangerBrush");
+        contentBox = new Viewbox { Width = 224, Height = 110, Child = normalContent, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly };
+        Add(bubbleCanvas,contentBox,42,18);
+        Add(bubbleCanvas,updated,64,130);
         thought1 = new Ellipse { Width = 27, Height = 17, StrokeThickness = 4 };
         thought2 = new Ellipse { Width = 16, Height = 11, StrokeThickness = 3 };
         Add(bubbleCanvas, thought1, 101, 171); Add(bubbleCanvas, thought2, 132, 199);
@@ -119,16 +138,24 @@ public sealed class MainWindow : Window
             {
                 if (closing || closeRequested) return;
                 store.CompleteMigration(settings); startupNotice ??= store.MigrationNotice; LoadMascot(startup: true);
-                if (startupNotice is not null) { status.Text = startupNotice; status.ToolTip = startupNotice; }
+                if (startupNotice is not null) RenderDisplay();
                 if (api.Session is not null) { timer.Start(); await RefreshAsync(); }
             }));
         };
-        MouseLeftButtonDown += (_, e) =>
+        MouseLeftButtonDown += (_,e)=> {if(!settings.ClickThrough && e.ChangedButton==MouseButton.Left)dragOrigin=e.GetPosition(this);};
+        MouseLeftButtonUp += (_,_)=>dragOrigin=null;
+        MouseMove += (_,e)=>
         {
-            if (settings.ClickThrough || e.ChangedButton != MouseButton.Left) return;
-            try { DragMove(); ClampPosition(); SavePosition(); } catch (InvalidOperationException) { }
+            if(settings.ClickThrough || dragOrigin is null || e.LeftButton!=MouseButtonState.Pressed)return;
+            var point=e.GetPosition(this);var origin=dragOrigin.Value;
+            if(Math.Abs(point.X-origin.X)<SystemParameters.MinimumHorizontalDragDistance && Math.Abs(point.Y-origin.Y)<SystemParameters.MinimumVerticalDragDistance)return;
+            dragOrigin=null;try{DragMove();ClampPosition();SavePosition();}catch(InvalidOperationException){}
         };
         MouseRightButtonUp += (_, e) => { if (!settings.ClickThrough) { OpenMenu(); e.Handled = true; } };
+        alertExpiry.Tick += (_,_) => { alertExpiry.Stop(); alertText=null; RenderDisplay(); };
+        mascot.MouseLeftButtonDown += (_,e) => { if(e.ClickCount==2 && !settings.ClickThrough){dragOrigin=null;showDaily=!showDaily;RenderDisplay();e.Handled=true;} };
+        dayBoundary.Tick+=(_,_)=> {ConfigureDayBoundary();if(dailyDay.HasValue && dailyDay!=DailySpend.BeijingDay(DateTimeOffset.UtcNow)){dailyAmount=null;dailyDay=null;dailyUpdatedAt=null;dailyError=null;alertText=null;alertExpiry.Stop();RenderDisplay();_ = RefreshAsync();}};
+        ConfigureDayBoundary();
         timer.Tick += async (_, _) => await RefreshAsync();
         sizeSave.Tick += (_, _) => CommitSizes();
         SystemEvents.PowerModeChanged += PowerModeChanged;
@@ -147,11 +174,12 @@ public sealed class MainWindow : Window
         if (closing || closeRequested || api.Session is null || !await queryGate.WaitAsync(0)) return;
         try
         {
-            status.Text = "查询中…";
+            // Keep the current view unchanged while a request is in flight.
             var balance = await api.GetBalanceAsync(shutdown.Token);
             if (closeRequested || closing) return;
             var delta = display.Success(balance);
             if (delta.HasValue) decrease.Show(delta.Value, settings.BubbleMotion);
+            await RefreshDailyAsync();
         }
         catch (SessionExpiredException) { timer.Stop(); display.Expire(); }
         catch (BalanceException ex) { display.Fail(ex.Message); }
@@ -159,13 +187,82 @@ public sealed class MainWindow : Window
         catch { display.Fail("无法完成查询，请稍后重试"); }
         finally { queryGate.Release(); if (!closing && !closeRequested) RenderDisplay(); }
     }
+    private void ConfigureDayBoundary()
+    {
+        var now=DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8));
+        var next=new DateTimeOffset(now.Date.AddDays(1),TimeSpan.FromHours(8));
+        dayBoundary.Stop();dayBoundary.Interval=next-now+TimeSpan.FromMilliseconds(100);dayBoundary.Start();
+    }
+    private async Task RefreshDailyAsync()
+    {
+        var day=DailySpend.BeijingDay(DateTimeOffset.UtcNow);
+        try
+        {
+            var value=await api.GetDailySpendAsync(day,shutdown.Token);
+            if(closing||closeRequested||day!=DailySpend.BeijingDay(DateTimeOffset.UtcNow))return;
+            dailyDay=day;dailyAmount=value;dailyUpdatedAt=DateTimeOffset.Now;dailyError=null;
+            var account=api.Session!.SiteUrl + "|" + settings.Email.Trim().ToLowerInvariant();
+            var progress=settings.SpendProgress;
+            var previous=(progress.Account,progress.Day,progress.Threshold,progress.LastNode);
+            var message=DailySpend.Evaluate(value,day,account,settings.SpendAlerts,progress);
+            if(previous!=(progress.Account,progress.Day,progress.Threshold,progress.LastNode))
+            {
+                try {store.SaveSettings(settings);} catch {progress.Account=previous.Account;progress.Day=previous.Day;progress.Threshold=previous.Threshold;progress.LastNode=previous.LastNode;dailyError="提醒记录未能保存";return;}
+            }
+            if(message is not null){alertText=message;alertExpiry.Stop();alertExpiry.Start();}
+        }
+        catch(SessionExpiredException){throw;}
+        catch(BalanceException ex){dailyError=ex.Message;}
+    }
+    private void OpenSpendAlerts()
+    {
+        CloseMenu();if(spendAlertWindow is not null){spendAlertWindow.Activate();return;}
+        spendAlertWindow=new SpendAlertWindow(settings.SpendAlerts,value=>
+        {
+            var old=settings.SpendAlerts;settings.SpendAlerts=value;
+            try{store.SaveSettings(settings);}catch{settings.SpendAlerts=old;throw;}
+            alertText=null;alertExpiry.Stop();RenderDisplay();_ = RefreshAsync();
+        }){Owner=this};
+        spendAlertWindow.Closed+=(_,_)=>spendAlertWindow=null;spendAlertWindow.Show();spendAlertWindow.Activate();
+    }
     private void RenderDisplay()
     {
-        amount.Text = display.AmountText; updated.Text = display.UpdatedText;
-        status.Text = sessionSaveFailed ? "会话未能保存，下次启动需重新登录" : display.Status;
-        if (startupNotice is not null) status.Text += " · " + startupNotice;
-        status.ToolTip = status.Text;
-        if (tray is not null) tray.Text = "Balance Plug · " + display.AmountText;
+        if(dailyDay.HasValue && dailyDay!=DailySpend.BeijingDay(DateTimeOffset.UtcNow))
+        {dailyAmount=null;dailyUpdatedAt=null;dailyError=null;alertText=null;alertExpiry.Stop();}
+        title.Text = showDaily ? "今日花费" : "账户余额";
+        amount.Text = showDaily ? (dailyAmount.HasValue ? "-" + BalanceApi.FormatBalance(dailyAmount.Value) : "—") : display.AmountText;
+        var overBudget=showDaily && dailyAmount.HasValue && settings.SpendAlerts.Enabled && dailyAmount.Value>settings.SpendAlerts.Threshold;
+        title.Foreground=new SolidColorBrush(showDaily ? Color.FromRgb(180,83,119) : Color.FromRgb(79,106,173));
+        amount.Foreground=showDaily
+            ? new SolidColorBrush(overBudget ? Color.FromRgb(181,48,80) : Color.FromRgb(203,91,130))
+            : new LinearGradientBrush(Color.FromRgb(126,185,237),Color.FromRgb(243,156,188),0);
+        contentBox.ToolTip=(showDaily ? "北京时间今日实际美元花费；" : "")+display.UpdatedText;
+        var time=showDaily ? dailyUpdatedAt : display.UpdatedAt;
+        updated.Text=time.HasValue ? "更新 " + time.Value.ToLocalTime().ToString("HH:mm:ss") : "尚未查询成功";
+        updated.ToolTip = showDaily ? "北京时间 00:00—24:00 · 实际美元计费" : null;
+        var message = display.Status == "已更新" ? "" : display.Status;
+        if(showDaily && dailyError is not null)message="今日花费更新失败 · "+dailyError;
+        if(sessionSaveFailed)message="会话未能保存，下次启动需重新登录";
+        if(startupNotice is not null)message+=(message.Length>0 ? " · " : "")+startupNotice;
+        status.Text=message;status.ToolTip=message;status.Visibility=Visibility.Collapsed;
+        var fullMessage=alertText ?? (message.Length>0 && message!="查询中…" ? message : null);
+        if(fullMessage is not null)
+        {
+            reminder.Text=fullMessage;reminder.ToolTip=fullMessage;
+            contentBox.ToolTip=fullMessage;
+            // Prefer large readable text; reduce only until the full wrapped message fits the ellipse inset.
+            for(var font=32; font>=14; font--)
+            {
+                var measure=new TextBlock {Text=fullMessage,Width=224,FontFamily=reminder.FontFamily,FontWeight=reminder.FontWeight,
+                    FontSize=font,LineHeight=font*1.05,LineStackingStrategy=LineStackingStrategy.BlockLineHeight,TextWrapping=TextWrapping.Wrap};
+                measure.Measure(new Size(224,double.PositiveInfinity));
+                reminder.FontSize=font;reminder.LineHeight=font*1.05;
+                if(measure.DesiredSize.Height<=110)break;
+            }
+            contentBox.Child=reminder;
+        }
+        else contentBox.Child=normalContent;
+        if(tray is not null)tray.Text="Balance Plug · "+display.AmountText;
     }
     private async Task LoginAsync(string site, string email, string password)
     {
@@ -174,7 +271,7 @@ public sealed class MainWindow : Window
         {
             await api.LoginAsync(site, email, password, shutdown.Token);
             settings.SiteUrl = api.Session!.SiteUrl; settings.Email = email.Trim(); SaveSettings();
-            startupNotice = null; decrease.Hide(); display.Reset(); timer.Start();
+            startupNotice = null; decrease.Hide(); display.Reset(); dailyAmount=null;dailyDay=null;dailyError=null;alertText=null;alertExpiry.Stop(); timer.Start();
             if (sessionSaveFailed) throw new BalanceException("连接成功，但会话无法加密保存，请检查本地目录权限");
         }
         finally { queryGate.Release(); }
@@ -237,7 +334,7 @@ public sealed class MainWindow : Window
             new Entry("吉祥物选择", Children: images.ToArray()),
             new Entry("开机自启", ToggleAutoStart, IsAutoStart), new Entry("鼠标穿透", () => SetClickThrough(!settings.ClickThrough), () => settings.ClickThrough),
             new Entry("恢复窗口位置", () => RestorePosition()),
-            new Entry("是否置顶", () => SetTopmost(!settings.Topmost), () => settings.Topmost), new Entry("关闭", Close, CloseBefore: true) };
+            new Entry("是否置顶", () => SetTopmost(!settings.Topmost), () => settings.Topmost), new Entry("今日花费提醒…", OpenSpendAlerts, CloseBefore: true), new Entry("关闭", Close, CloseBefore: true) };
     }
     private static bool IsAutoStart() { try { return DesktopNative.IsAutoStart(); } catch { return false; } }
     private ContextMenu BuildWindowMenu()
@@ -427,7 +524,7 @@ public sealed class MainWindow : Window
         return IntPtr.Zero;
     }
     private void PowerModeChanged(object sender,PowerModeChangedEventArgs e)
-    { if (e.Mode == PowerModes.Resume && !closing) Dispatcher.BeginInvoke(new Action(() => { ClampPosition(); _ = RefreshAsync(); })); }
+    { if (e.Mode == PowerModes.Resume && !closing) Dispatcher.BeginInvoke(new Action(() => { ClampPosition(); ConfigureDayBoundary(); RenderDisplay(); _ = RefreshAsync(); })); }
     private void OnClosing(object? sender,CancelEventArgs e)
     {
         if (closing) return;
@@ -436,13 +533,13 @@ public sealed class MainWindow : Window
             e.Cancel = true;
             if (!closeRequested)
             {
-                closeRequested = true; timer.Stop(); sizeSave.Stop(); shutdown.Cancel(); decrease.Hide(); CloseMenu();
+                closeRequested = true; timer.Stop(); sizeSave.Stop(); alertExpiry.Stop(); dayBoundary.Stop(); shutdown.Cancel(); decrease.Hide(); CloseMenu();
                 Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => { closeAllowed = true; Close(); }));
             }
             return;
         }
         SavePosition(); closing = true; timer.Stop(); sizeSave.Stop(); shutdown.Cancel(); CloseMenu(); decrease.Dispose();
-        accountWindow?.Close(); sizeWindow?.Close(); bubbleMotionWindow?.Close(); intervalWindow?.Close(); SystemEvents.PowerModeChanged -= PowerModeChanged; source?.RemoveHook(WindowMessage);
+        accountWindow?.Close(); sizeWindow?.Close(); bubbleMotionWindow?.Close(); intervalWindow?.Close(); spendAlertWindow?.Close(); SystemEvents.PowerModeChanged -= PowerModeChanged; source?.RemoveHook(WindowMessage);
         tray.Visible = false; tray.Dispose(); trayIcon.Dispose(); api.Dispose(); Application.Current.Shutdown();
     }
 

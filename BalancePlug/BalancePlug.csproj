@@ -4,7 +4,7 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>disable</ImplicitUsings><Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets\BalancePlug.ico</ApplicationIcon>
-    <AssemblyName>BalancePlug</AssemblyName><Version>1.2.1</Version>
+    <AssemblyName>BalancePlug</AssemblyName><Version>1.3.3</Version>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="..\BalancePlug.Core\BalancePlug.Core.csproj" /></ItemGroup>
 </Project>

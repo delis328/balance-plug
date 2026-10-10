@@ -36,6 +36,8 @@ public sealed class AppSettings
     public List<MascotItem> Mascots { get; set; } = new();
     public string? ActiveMascotId { get; set; }
     public bool Topmost { get; set; } = true;
+    public SpendAlertSettings SpendAlerts { get; set; } = new();
+    public SpendAlertProgress SpendProgress { get; set; } = new();
     public bool ClickThrough { get; set; }
     public double? Left { get; set; }
     public double? Top { get; set; }
@@ -51,6 +53,7 @@ public sealed class AppSettings
         try { SiteUrl = BalanceApi.NormalizeSite(SiteUrl ?? ""); }
         catch (BalanceException) { SiteUrl = BalanceApi.DefaultSite; }
         Email ??= "";
+        (SpendAlerts ??= new()).Normalize(); SpendProgress ??= new();
         if (Theme is not ("Blue" or "Light" or "Dark")) Theme = "Blue";
         BubbleScale = NormalizeScale(BubbleScale); MascotScale = NormalizeScale(MascotScale);
         UpdateIntervalSeconds = Math.Clamp(UpdateIntervalSeconds <= 0 ? 60 : UpdateIntervalSeconds, 15, 3600);

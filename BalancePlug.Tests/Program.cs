@@ -435,6 +435,60 @@ await Test("motion settings persist independently from bubble scale", () =>
 {
     var dir=FixtureDirectory(); try { var store=new LocalStore(dir); var settings=new AppSettings { BubbleScale=.8, MascotScale=1.4, UpdateIntervalSeconds=315, BubbleMotion=new BubbleMotionSettings { StartX=.1,StartY=.9,TargetX=.8,TargetY=.1,Speed=75,Scale=1.25 } }; store.SaveSettings(settings); var loaded=store.LoadSettings(out _); Equal(.8,loaded.BubbleScale); Equal(1.4,loaded.MascotScale); Equal(315,loaded.UpdateIntervalSeconds); Equal(.1,loaded.BubbleMotion.StartX); Equal(75,loaded.BubbleMotion.Speed); Equal(1.25,loaded.BubbleMotion.Scale); return Task.CompletedTask; } finally { CleanFixture(dir); }
 });
+await Test("Beijing day resets at UTC 16:00",()=>
+{
+    Equal(new DateOnly(2026,10,10),DailySpend.BeijingDay(DateTimeOffset.Parse("2026-10-10T15:59:59Z")));
+    Equal(new DateOnly(2026,10,11),DailySpend.BeijingDay(DateTimeOffset.Parse("2026-10-10T16:00:00Z")));return Task.CompletedTask;
+});
+await Test("daily API uses exact date, Shanghai timezone and actual rather than standard cost",async()=>
+{
+    using var api=new BalanceApi(new ScriptedHandler((request,_)=>
+    {
+        Equal("/api/v1/usage/stats",request.RequestUri!.AbsolutePath);
+        Equal("?start_date=2026-10-10&end_date=2026-10-10&timezone=Asia%2FShanghai",request.RequestUri.Query);
+        Equal("1",request.Headers.GetValues("X-User-UI-Request").Single());
+        return Task.FromResult(Response("{\"code\":0,\"data\":{\"total_cost\":99,\"total_actual_cost\":1.234567}}"));
+    }));api.RestoreSession(Session());Equal(1.234567m,await api.GetDailySpendAsync(new DateOnly(2026,10,10)));
+});
+foreach(var json in new[]{"{}","{\"total_actual_cost\":null}","{\"total_actual_cost\":-1}","{\"total_actual_cost\":\"5\"}"})
+await Test("daily invalid amount is not zero "+json,async()=>
+{
+    using var api=new BalanceApi(new ScriptedHandler((_,_)=>Task.FromResult(Response("{\"code\":0,\"data\":"+json+"}"))));
+    api.RestoreSession(Session());await Throws<BalanceException>(async()=>await api.GetDailySpendAsync(new DateOnly(2026,10,10)));
+});
+await Test("daily budget nodes, jumps, reload and midnight reset",()=>
+{
+    var cfg=new SpendAlertSettings{Enabled=true,Threshold=20,Messages=new(){new("chosen",true),new("never",false)}};var state=new SpendAlertProgress();var day=new DateOnly(2026,10,10);
+    Equal<string?>(null,DailySpend.Evaluate(20,day,"account",cfg,state));Equal("chosen",DailySpend.Evaluate(20.01m,day,"account",cfg,state));
+    Equal<string?>(null,DailySpend.Evaluate(24.99m,day,"account",cfg,state));Equal("chosen",DailySpend.Evaluate(25,day,"account",cfg,state));
+    Equal("chosen",DailySpend.Evaluate(42,day,"account",cfg,state));Equal(4,state.LastNode);
+    state=JsonSerializer.Deserialize<SpendAlertProgress>(JsonSerializer.Serialize(state))!;
+    Equal<string?>(null,DailySpend.Evaluate(42,day,"account",cfg,state));Equal<string?>(null,DailySpend.Evaluate(30,day,"account",cfg,state));
+    Equal("chosen",DailySpend.Evaluate(21,day.AddDays(1),"account",cfg,state));Equal("chosen",DailySpend.Evaluate(21,day,"different",cfg,state));return Task.CompletedTask;
+});
+await Test("disabled or unselected alerts do not consume nodes",()=>
+{
+    var cfg=new SpendAlertSettings();var state=new SpendAlertProgress();var day=new DateOnly(2026,10,10);
+    Equal<string?>(null,DailySpend.Evaluate(50,day,"a",cfg,state));Equal(-1,state.LastNode);
+    cfg.Enabled=true;cfg.Messages=new(){new("off",false)};Equal<string?>(null,DailySpend.Evaluate(50,day,"a",cfg,state));Equal(-1,state.LastNode);
+    cfg.Messages=new(){new("on",true)};Equal("on",DailySpend.Evaluate(50,day,"a",cfg,state));return Task.CompletedTask;
+});
+await Test("daily authentication retries once with rotated session",async()=>
+{
+    var calls=0;using var api=new BalanceApi(new ScriptedHandler((request,_)=>
+    {
+        calls++;if(calls==1)return Task.FromResult(Response("{}",HttpStatusCode.Unauthorized));
+        if(calls==2)return Task.FromResult(Response(Pair));
+        Equal("Bearer new-access",request.Headers.Authorization!.ToString());return Task.FromResult(Response("{\"code\":0,\"data\":{\"total_actual_cost\":0}}"));
+    }));api.RestoreSession(Session());Equal(0m,await api.GetDailySpendAsync(new DateOnly(2026,10,10)));Equal(3,calls);
+});
+await Test("threshold edit resets nodes but text edit does not",()=>
+{
+    var day=new DateOnly(2026,10,10);var cfg=new SpendAlertSettings{Enabled=true,Threshold=20};var state=new SpendAlertProgress();
+    Equal(true,DailySpend.Evaluate(30,day,"a",cfg,state) is not null);cfg.Messages=new(){new("edited",true)};
+    Equal<string?>(null,DailySpend.Evaluate(30,day,"a",cfg,state));cfg.Threshold=25;
+    Equal("edited",DailySpend.Evaluate(30,day,"a",cfg,state));return Task.CompletedTask;
+});
 Console.WriteLine($"RESULT {passed} passed, {failures.Count} failed");
 return failures.Count == 0 ? 0 : 1;
 

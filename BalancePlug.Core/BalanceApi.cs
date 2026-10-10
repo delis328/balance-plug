@@ -65,7 +65,15 @@ public sealed class BalanceApi : IDisposable
         finally { gate.Release(); }
     }
 
-    public async Task<decimal> GetBalanceAsync(CancellationToken ct = default)
+    public Task<decimal> GetBalanceAsync(CancellationToken ct = default) => GetAuthenticatedValueAsync("auth/me", ReadBalance, ct);
+
+    public Task<decimal> GetDailySpendAsync(DateOnly day, CancellationToken ct = default)
+    {
+        var date = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return GetAuthenticatedValueAsync($"usage/stats?start_date={date}&end_date={date}&timezone=Asia%2FShanghai", ReadDailySpend, ct);
+    }
+
+    private async Task<decimal> GetAuthenticatedValueAsync(string path, Func<JsonElement, decimal> read, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
@@ -77,11 +85,11 @@ public sealed class BalanceApi : IDisposable
                 await RefreshAsync(ct);
                 refreshed = true;
             }
-            try { return await FetchBalanceAsync(ct); }
+            try { return await FetchValueAsync(path, read, ct); }
             catch (SessionExpiredException) when (!refreshed)
             {
                 await RefreshAsync(ct);
-                try { return await FetchBalanceAsync(ct); }
+                try { return await FetchValueAsync(path, read, ct); }
                 catch (SessionExpiredException) { SetSession(null); throw; }
             }
             catch (SessionExpiredException) { SetSession(null); throw; }
@@ -89,10 +97,10 @@ public sealed class BalanceApi : IDisposable
         finally { gate.Release(); }
     }
 
-    private async Task<decimal> FetchBalanceAsync(CancellationToken ct)
+    private async Task<decimal> FetchValueAsync(string path, Func<JsonElement,decimal> read, CancellationToken ct)
     {
         var session = Session ?? throw new SessionExpiredException();
-        return ReadBalance(await SendAsync(session.SiteUrl, "auth/me", HttpMethod.Get, null, session.AccessToken, ct));
+        return read(await SendAsync(session.SiteUrl,path,HttpMethod.Get,null,session.AccessToken,ct));
     }
 
     private async Task RefreshAsync(CancellationToken ct)
@@ -120,7 +128,7 @@ public sealed class BalanceApi : IDisposable
         using var request = new HttpRequestMessage(method, $"{site}/api/v1/{path}");
         request.Headers.AcceptLanguage.ParseAdd("zh");
         if (token is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        if (path == "auth/me") request.Headers.Add("X-User-UI-Request", "1");
+        if (path == "auth/me" || path.StartsWith("usage/", StringComparison.Ordinal)) request.Headers.Add("X-User-UI-Request", "1");
         if (body is not null) request.Content = JsonContent.Create(body);
         try
         {
@@ -165,6 +173,13 @@ public sealed class BalanceApi : IDisposable
     {
         if (!data.TryGetProperty("balance", out var balance) || balance.ValueKind != JsonValueKind.Number ||
             !balance.TryGetDecimal(out var value)) throw new BalanceException("接口缺少有效账户 balance，未将其当作零余额");
+        return value;
+    }
+
+    public static decimal ReadDailySpend(JsonElement data)
+    {
+        if (!data.TryGetProperty("total_actual_cost",out var cost) || cost.ValueKind != JsonValueKind.Number || !cost.TryGetDecimal(out var value) || value<0)
+            throw new BalanceException("接口缺少有效今日实际花费，未将其当作零");
         return value;
     }
 

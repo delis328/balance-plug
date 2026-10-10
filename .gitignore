@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+outputs/
+publish/
+*.user
+*.suo
+publish-v*/
+# Local account/session data must never be committed.
+session.dat
+settings.json
+mascot.png
+mascots/
+.env
+.env.*
+!.env.example

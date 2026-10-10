@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BalancePlug.Core", "BalancePlug.Core\BalancePlug.Core.csproj", "{E0B10941-5CCE-46A8-89CA-B9D857762F38}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BalancePlug", "BalancePlug\BalancePlug.csproj", "{B4648109-B1A5-4011-9C00-7F4C25ACBA1F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BalancePlug.Tests", "BalancePlug.Tests\BalancePlug.Tests.csproj", "{5AE03E87-74E5-487E-B0DB-75EBCA49EA73}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E0B10941-5CCE-46A8-89CA-B9D857762F38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E0B10941-5CCE-46A8-89CA-B9D857762F38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E0B10941-5CCE-46A8-89CA-B9D857762F38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E0B10941-5CCE-46A8-89CA-B9D857762F38}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B4648109-B1A5-4011-9C00-7F4C25ACBA1F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B4648109-B1A5-4011-9C00-7F4C25ACBA1F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B4648109-B1A5-4011-9C00-7F4C25ACBA1F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B4648109-B1A5-4011-9C00-7F4C25ACBA1F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5AE03E87-74E5-487E-B0DB-75EBCA49EA73}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5AE03E87-74E5-487E-B0DB-75EBCA49EA73}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5AE03E87-74E5-487E-B0DB-75EBCA49EA73}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5AE03E87-74E5-487E-B0DB-75EBCA49EA73}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
